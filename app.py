@@ -13,18 +13,17 @@ with st.sidebar:
     city_a = st.text_input("City A", "New York")
     city_b = st.text_input("City B", "London")
     
-    # Feature 1: Unit Toggle
     unit = st.radio("Temperature Unit", ["Celsius (°C)", "Fahrenheit (°F)"])
     temp_unit = "celsius" if "Celsius" in unit else "fahrenheit"
     
-    # Date Range Setup
     end_date = datetime.now().date()
     start_date = end_date - timedelta(days=30)
     date_range = st.date_input("Select Date Range", [start_date, end_date])
     
-    st.info("Searching is global! Type any city name.")
+    # Restored: The Update Dashboard Button
+    update_btn = st.button("Update Dashboard", type="primary")
 
-# 3. Logic: Geocoding & Weather Fetching
+# 3. Helper Functions
 def get_coords(city):
     geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1&language=en&format=json"
     res = requests.get(geo_url).json()
@@ -34,7 +33,7 @@ def get_coords(city):
 
 def get_weather_data(city, start, end, unit):
     lat, lon = get_coords(city)
-    if lat is None: return pd.DataFrame() # Handle city not found
+    if lat is None: return pd.DataFrame()
     
     url = f"https://archive-api.open-meteo.com/v1/archive?latitude={lat}&longitude={lon}&start_date={start}&end_date={end}&daily=temperature_2m_max&temperature_unit={unit}&timezone=auto"
     response = requests.get(url).json()
@@ -44,32 +43,36 @@ def get_weather_data(city, start, end, unit):
         "City": city
     })
 
-# Main Application logic
+# 4. Main Application Display
 st.markdown("# ☀️ SkyCast Analytics")
 
-if len(date_range) == 2:
-    df_a = get_weather_data(city_a, date_range[0], date_range[1], temp_unit)
-    df_b = get_weather_data(city_b, date_range[0], date_range[1], temp_unit)
-    
-    if not df_a.empty and not df_b.empty:
-        combined_df = pd.concat([df_a, df_b])
-        tab1, tab2 = st.tabs(["📈 Visualization", "📋 Data"])
+# Only run the heavy lifting if the user clicks the button or on initial load
+if update_btn:
+    if len(date_range) == 2:
+        with st.spinner("Fetching weather data..."):
+            df_a = get_weather_data(city_a, date_range[0], date_range[1], temp_unit)
+            df_b = get_weather_data(city_b, date_range[0], date_range[1], temp_unit)
+        
+        if not df_a.empty and not df_b.empty:
+            combined_df = pd.concat([df_a, df_b])
+            tab1, tab2 = st.tabs(["📈 Visualization", "📋 Data"])
 
-        with tab1:
-            col1, col2 = st.columns(2)
-            unit_sym = "°C" if temp_unit == "celsius" else "°F"
-            col1.metric(f"Avg Max Temp ({city_a})", f"{df_a['Max Temp'].mean():.1f} {unit_sym}")
-            col2.metric(f"Avg Max Temp ({city_b})", f"{df_b['Max Temp'].mean():.1f} {unit_sym}")
-            
-            fig = px.line(combined_df, x="Date", y="Max Temp", color="City", 
-                          template="plotly_dark", title=f"Historical Max Temperature ({unit_sym})")
-            st.plotly_chart(fig, use_container_width=True)
+            with tab1:
+                col1, col2 = st.columns(2)
+                unit_sym = "°C" if temp_unit == "celsius" else "°F"
+                col1.metric(f"Avg Max Temp ({city_a})", f"{df_a['Max Temp'].mean():.1f} {unit_sym}")
+                col2.metric(f"Avg Max Temp ({city_b})", f"{df_b['Max Temp'].mean():.1f} {unit_sym}")
+                
+                fig = px.line(combined_df, x="Date", y="Max Temp", color="City", 
+                              template="plotly_dark", title=f"Historical Max Temperature ({unit_sym})")
+                st.plotly_chart(fig, use_container_width=True)
 
-        with tab2:
-            st.subheader("Raw Weather Data")
-            # Feature 3: Download Button
-            csv = combined_df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Data as CSV", data=csv, file_name="weather_data.csv", mime="text/csv")
-            st.dataframe(combined_df, use_container_width=True)
-    else:
-        st.error("Could not find one of the cities. Please check the spelling!")
+            with tab2:
+                st.subheader("Raw Weather Data")
+                csv = combined_df.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 Download Data as CSV", data=csv, file_name="weather_data.csv", mime="text/csv")
+                st.dataframe(combined_df, use_container_width=True)
+        else:
+            st.error("Could not find one of the cities. Please check the spelling!")
+else:
+    st.info("👈 Adjust the settings in the sidebar and click 'Update Dashboard' to see the results.")
